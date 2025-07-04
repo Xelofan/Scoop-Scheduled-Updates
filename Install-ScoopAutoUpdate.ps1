@@ -127,26 +127,23 @@ function Invoke-Uninstall {
 }
 
 function Invoke-Installation {
-    param([string]$SourcePath) # Takes the source path as a parameter now
+    param([string]$SourcePath)
 
     $UpdateScriptName = "Update-Scoop.ps1"
     $TaskXmlName = "ScoopAutoUpdate.xml"
     $LogPath = "$env:USERPROFILE\.scoop\logs"
 
     Write-Status "Starting installation..." -Type 'Info'
+    $TempXmlPath = $null
     try {
-        # Create directories
         if (-not (Test-Path $InstallPath)) { New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null; Write-Status "Created installation directory: $InstallPath" -Type 'Success' }
         if (-not (Test-Path $LogPath)) { New-Item -Path $LogPath -ItemType Directory -Force | Out-Null; Write-Status "Created log directory: $LogPath" -Type 'Success' }
         
-        # Copy Update-Scoop.ps1
         $SourceScript = Join-Path $SourcePath $UpdateScriptName
         $DestScript = Join-Path $InstallPath $UpdateScriptName
         Copy-Item -Path $SourceScript -Destination $DestScript -Force
         Write-Status "Copied $UpdateScriptName to installation directory." -Type 'Success'
         
-        # --- THIS BLOCK IS NOW CORRECTED TO BE iex-SAFE ---
-        # 1. Prepare the XML content in memory
         $TaskXmlPath = Join-Path $SourcePath $TaskXmlName
         $TaskXmlContent = Get-Content $TaskXmlPath -Raw
         $CurrentUserSID = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -155,38 +152,31 @@ function Invoke-Installation {
         $TaskXmlContent = $TaskXmlContent -replace "%USERPROFILE%\\Documents\\ScoopAutoUpdate", $InstallPath
         $TaskXmlContent = $TaskXmlContent -replace '##USER_SID##', $CurrentUserSID
 
-        # 2. Save the content to a temporary file on disk
         $TempXmlPath = Join-Path $env:TEMP "ScoopAutoUpdate_Task.xml"
         $TaskXmlContent | Out-File -FilePath $TempXmlPath -Encoding UTF8 -Force
         
-        # Remove existing task if it exists
         $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($ExistingTask) { Write-Status "Removing existing task..."; Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
         
-        # 3. Register the task by reading from the temp file
         Register-ScheduledTask -TaskName $TaskName -Xml (Get-Content -Path $TempXmlPath -Raw) | Out-Null
         
-        # 4. Clean up the temp file
         Remove-Item -Path $TempXmlPath -Force
+        $TempXmlPath = $null
 
         Write-Status "Scheduled task '$TaskName' registered successfully." -Type 'Success'
         
-        # Verify task registration
         $RegisteredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($RegisteredTask) { 
-            # Use NextRunTime if available, otherwise use the trigger's start boundary
             $NextRun = if ($RegisteredTask.NextRunTime -lt [datetime]::new(2002,1,1)) { $RegisteredTask.Triggers[0].StartBoundary } else { $RegisteredTask.NextRunTime }
             Write-Status "Task verification successful. Next run: $($NextRun)" -Type 'Success'
         }
         else { Write-Status "Task verification failed." -Type 'Warning' }
     } catch {
         Write-Status "Installation failed: $($_.Exception.Message)" -Type 'Error'
-        # Clean up temp file on failure too
-        if (Test-Path $TempXmlPath) { Remove-Item -Path $TempXmlPath -Force }
+        if ($TempXmlPath -and (Test-Path $TempXmlPath)) { Remove-Item -Path $TempXmlPath -Force }
         throw
     }
 }
-
 
 # --- Main Execution Block ---
 $ScriptRoot = $null
@@ -199,21 +189,17 @@ try {
         Invoke-Uninstall
     }
     else {
-        # This is the key change. We initialize the path first.
         $ScriptRoot = Initialize-SourcePath
         if (-not $ScriptRoot) { throw "Could not prepare source files. Aborting." }
         
-        # Check if we are using a temporary directory
         if ($ScriptRoot.Contains($env:TEMP)) { $IsTemp = $true }
 
-        # Check prerequisites
         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
         $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
         if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "This script should not be run as Administrator." }
         if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) { throw "Scoop not found. Please install Scoop first: https://scoop.sh" }
         Write-Status "Prerequisites met." -Type 'Success'
 
-        # Perform installation, passing the determined source path
         Invoke-Installation -SourcePath $ScriptRoot
         
         Write-Host ""
@@ -224,13 +210,12 @@ try {
         Write-Host ""
         Write-Status "Installation completed successfully!" -Type 'Success'
     }
-}
+} # <<< THIS IS THE BRACE THAT WAS MISSING
 catch {
     Write-Status "An error occurred: $($_.Exception.Message)" -Type 'Error'
     exit 1
 }
 finally {
-    # Clean up the temporary directory if one was used
     if ($IsTemp -and $ScriptRoot -and (Test-Path $ScriptRoot)) {
         Write-Status "Cleaning up temporary files..." -Type 'Info'
         Remove-Item -Path $ScriptRoot -Recurse -Force
