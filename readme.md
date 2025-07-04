@@ -14,12 +14,12 @@
 
 ## Installation
 ```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/main/Install-ScoopAutoUpdate.ps1'))
+iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1'))
 ```
 
 ## Customization
 ```powershell
-iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/main/Install-ScoopAutoUpdate.ps1').Content } -ScheduleTime '01:00' -InstallPath 'C:\Automation\Scoop'"
+iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1').Content } -ScheduleTime '01:00' -InstallPath 'C:\Automation\Scoop'"
 ```
 
 ## Monitoring
@@ -38,7 +38,7 @@ Start-ScheduledTask -TaskName "ScoopAutoUpdate"
 
 ### **Automated Uninstallation**
 ```powershell
-iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/main/Install-ScoopAutoUpdate.ps1').Content } -Uninstall"
+iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1').Content } -Uninstall"
 ```
 
 ### **Manual Uninstallation**

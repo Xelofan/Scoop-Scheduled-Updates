@@ -102,7 +102,7 @@ function Test-Prerequisites {
 # Download required files from GitHub
 function Get-RequiredFiles {
     param(
-        [string]$BaseUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/main"
+        [string]$BaseUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master"
     )
     
     $FilesToDownload = @{
@@ -190,7 +190,7 @@ function Test-RequiredFiles {
     
     # Use detected URL or default
     if (-not $RemoteUrl) {
-        $RemoteUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/main"
+        $RemoteUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master"
         Write-Status "Using default repository URL. Update the script with your repository details." -Type 'Warning'
     }
     
