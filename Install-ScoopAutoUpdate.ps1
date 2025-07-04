@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Installs and configures a daily scheduled task to update Scoop and its packages.
-    This script can be run locally or directly from the web using the recommended one-liner.
+    Requires all three script files to be downloaded and present in the same directory.
 
 .PARAMETER InstallPath
     Path where the Update-Scoop.ps1 script will be installed.
@@ -25,8 +25,12 @@
     .\Install-ScoopAutoUpdate.ps1
 
 .EXAMPLE
-    # Run directly from the web (Recommended Method)
-    Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-Command -ScriptBlock ([ScriptBlock]::Create((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/master/Install-ScoopAutoUpdate.ps1')))
+    # Install with a custom schedule time
+    .\Install-ScoopAutoUpdate.ps1 -ScheduleTime "02:30"
+
+.EXAMPLE
+    # Uninstall the components
+    .\Install-ScoopAutoUpdate.ps1 -Uninstall
 #>
 
 param(
@@ -35,6 +39,12 @@ param(
     [string]$ScheduleTime = "03:00",
     [switch]$Uninstall
 )
+
+# --- Define script variables ---
+$ScriptRoot = $PSScriptRoot
+$UpdateScriptName = "Update-Scoop.ps1"
+$TaskXmlName = "ScoopAutoUpdate.xml"
+$LogPath = "$env:USERPROFILE\.scoop\logs"
 
 # --- Helper function for colored output ---
 function Write-Status {
@@ -48,49 +58,7 @@ function Write-Status {
     Write-Host "$Prefix $Message" -ForegroundColor $Colors[$Type]
 }
 
-# --- This function now determines the source path for the other script files ---
-function Initialize-SourcePath {
-    $UpdateScriptName = "Update-Scoop.ps1"
-    $TaskXmlName = "ScoopAutoUpdate.xml"
-    $DefaultRepoUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/master"
-
-    # If the script is run as a local file, check for the other files in its directory
-    if ($PSScriptRoot) {
-        if ((Test-Path (Join-Path $PSScriptRoot $UpdateScriptName)) -and (Test-Path (Join-Path $PSScriptRoot $TaskXmlName))) {
-            Write-Status "Required files found locally in '$PSScriptRoot'." -Type 'Success'
-            return $PSScriptRoot
-        }
-    }
-
-    # If running from memory or files are not found locally, download them
-    Write-Status "Running from web or local files not found. Downloading required files..." -Type 'Info'
-    $TempDir = Join-Path $env:TEMP "ScoopAutoUpdate_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-    New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
-    
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $WebClient = New-Object System.Net.WebClient
-
-        $WebClient.DownloadFile("$DefaultRepoUrl/$UpdateScriptName", (Join-Path $TempDir $UpdateScriptName))
-        Write-Status "Downloaded $UpdateScriptName..." -Type 'Info'
-
-        $WebClient.DownloadFile("$DefaultRepoUrl/$TaskXmlName", (Join-Path $TempDir $TaskXmlName))
-        Write-Status "Downloaded $TaskXmlName..." -Type 'Info'
-        
-        Write-Status "Files downloaded successfully to temporary directory." -Type 'Success'
-        return $TempDir
-    }
-    catch {
-        Write-Status "Failed to download required files: $($_.Exception.Message)" -Type 'Error'
-        if (Test-Path $TempDir) { Remove-Item -Path $TempDir -Recurse -Force }
-        return $null
-    }
-    finally {
-        if ($WebClient) { $WebClient.Dispose() }
-    }
-}
-
-# --- Installation, Uninstallation, and other functions ---
+# --- Installation and Uninstallation functions ---
 
 function Invoke-Uninstall {
     Write-Status "Starting uninstallation..." -Type 'Info'
@@ -106,20 +74,14 @@ function Invoke-Uninstall {
 }
 
 function Invoke-Installation {
-    param([string]$SourcePath)
-
-    $UpdateScriptName = "Update-Scoop.ps1"
-    $TaskXmlName = "ScoopAutoUpdate.xml"
-    $LogPath = "$env:USERPROFILE\.scoop\logs"
     $TempXmlPath = $null
-
     try {
         if (-not (Test-Path $InstallPath)) { New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null; Write-Status "Created install directory: $InstallPath" -Type 'Success' }
         if (-not (Test-Path $LogPath)) { New-Item -Path $LogPath -ItemType Directory -Force | Out-Null; Write-Status "Created log directory: $LogPath" -Type 'Success' }
         
-        Copy-Item -Path (Join-Path $SourcePath $UpdateScriptName) -Destination (Join-Path $InstallPath $UpdateScriptName) -Force
+        Copy-Item -Path (Join-Path $ScriptRoot $UpdateScriptName) -Destination (Join-Path $InstallPath $UpdateScriptName) -Force
         
-        $TaskXmlContent = Get-Content (Join-Path $SourcePath $TaskXmlName) -Raw
+        $TaskXmlContent = Get-Content (Join-Path $ScriptRoot $TaskXmlName) -Raw
         $CurrentUserSID = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         
         $TaskXmlContent = $TaskXmlContent -replace "2025-01-01T03:00:00", "2025-01-01T$($ScheduleTime):00"
@@ -149,25 +111,24 @@ function Invoke-Installation {
 }
 
 # --- Main Execution Block ---
-$ScriptRoot = $null
-$IsTemp = $false
-
 try {
     Write-Host "`n=== Scoop Auto-Update Installer ===" -ForegroundColor White -BackgroundColor DarkBlue
     
     if ($Uninstall) { Invoke-Uninstall }
     else {
-        $ScriptRoot = Initialize-SourcePath
-        if (-not $ScriptRoot) { throw "Could not prepare source files. Aborting." }
-        if ($ScriptRoot.Contains($env:TEMP)) { $IsTemp = $true }
+        # Check that required files exist in the same directory
+        if (-not ((Test-Path (Join-Path $ScriptRoot $UpdateScriptName)) -and (Test-Path (Join-Path $ScriptRoot $TaskXmlName)))) {
+            throw "Required files 'Update-Scoop.ps1' and 'ScoopAutoUpdate.xml' not found. Please ensure all three files are in the same directory."
+        }
 
+        # Check prerequisites
         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
         $principal = New-Object Security.Principal.WindowsPrincipal($currentUser)
         if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw "This script should not be run as Administrator." }
         if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) { throw "Scoop not found. Please install Scoop first: https://scoop.sh" }
         Write-Status "Prerequisites met." -Type 'Success'
 
-        Invoke-Installation -SourcePath $ScriptRoot
+        Invoke-Installation
         
         Write-Host ""
         Write-Status "Installation completed successfully!" -Type 'Success'
@@ -176,12 +137,6 @@ try {
 catch {
     Write-Status "An error occurred: $($_.Exception.Message)" -Type 'Error'
     exit 1
-}
-finally {
-    if ($IsTemp -and $ScriptRoot -and (Test-Path $ScriptRoot)) {
-        Write-Status "Cleaning up temporary files..." -Type 'Info'
-        Remove-Item -Path $ScriptRoot -Recurse -Force
-    }
 }
 
 exit 0

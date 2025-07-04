@@ -12,16 +12,6 @@
         - By default it will run at **3:00 am daily** *(changeable)*
         - Runs on user level
 
-## Installation
-```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1'))
-```
-
-## Customization
-```powershell
-iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1').Content } -ScheduleTime '01:00' -InstallPath 'C:\Automation\Scoop'"
-```
-
 ## Monitoring
 
 ### Task Status
@@ -36,12 +26,7 @@ Start-ScheduledTask -TaskName "ScoopAutoUpdate"
 
 ---
 
-### **Automated Uninstallation**
-```powershell
-iex "& { $(iwr -useb 'https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master/Install-ScoopAutoUpdate.ps1').Content } -Uninstall"
-```
-
-### **Manual Uninstallation**
+### **Uninstallation**
 ```powershell
 # Delete task
 Unregister-ScheduledTask -TaskName "ScoopAutoUpdate" -Confirm:$false
