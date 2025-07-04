@@ -145,7 +145,8 @@ function Invoke-Installation {
         Copy-Item -Path $SourceScript -Destination $DestScript -Force
         Write-Status "Copied $UpdateScriptName to installation directory." -Type 'Success'
         
-        # Prepare and register task
+        # --- THIS BLOCK IS NOW CORRECTED TO BE iex-SAFE ---
+        # 1. Prepare the XML content in memory
         $TaskXmlPath = Join-Path $SourcePath $TaskXmlName
         $TaskXmlContent = Get-Content $TaskXmlPath -Raw
         $CurrentUserSID = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
@@ -153,19 +154,35 @@ function Invoke-Installation {
         $TaskXmlContent = $TaskXmlContent -replace "2025-01-01T03:00:00", "2025-01-01T$($ScheduleTime):00"
         $TaskXmlContent = $TaskXmlContent -replace "%USERPROFILE%\\Documents\\ScoopAutoUpdate", $InstallPath
         $TaskXmlContent = $TaskXmlContent -replace '##USER_SID##', $CurrentUserSID
+
+        # 2. Save the content to a temporary file on disk
+        $TempXmlPath = Join-Path $env:TEMP "ScoopAutoUpdate_Task.xml"
+        $TaskXmlContent | Out-File -FilePath $TempXmlPath -Encoding UTF8 -Force
         
+        # Remove existing task if it exists
         $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($ExistingTask) { Write-Status "Removing existing task..."; Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
         
-        Register-ScheduledTask -TaskName $TaskName -Xml $TaskXmlContent -User $env:USERNAME | Out-Null
+        # 3. Register the task by reading from the temp file
+        Register-ScheduledTask -TaskName $TaskName -Xml (Get-Content -Path $TempXmlPath -Raw) | Out-Null
+        
+        # 4. Clean up the temp file
+        Remove-Item -Path $TempXmlPath -Force
+
         Write-Status "Scheduled task '$TaskName' registered successfully." -Type 'Success'
         
         # Verify task registration
         $RegisteredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        if ($RegisteredTask) { Write-Status "Task verification successful. Next run: $($RegisteredTask.NextRunTime)" -Type 'Success' }
+        if ($RegisteredTask) { 
+            # Use NextRunTime if available, otherwise use the trigger's start boundary
+            $NextRun = if ($RegisteredTask.NextRunTime -lt [datetime]::new(2002,1,1)) { $RegisteredTask.Triggers[0].StartBoundary } else { $RegisteredTask.NextRunTime }
+            Write-Status "Task verification successful. Next run: $($NextRun)" -Type 'Success'
+        }
         else { Write-Status "Task verification failed." -Type 'Warning' }
     } catch {
         Write-Status "Installation failed: $($_.Exception.Message)" -Type 'Error'
+        # Clean up temp file on failure too
+        if (Test-Path $TempXmlPath) { Remove-Item -Path $TempXmlPath -Force }
         throw
     }
 }
