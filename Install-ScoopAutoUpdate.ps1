@@ -159,6 +159,13 @@ function Get-RequiredFiles {
 
 # Check if required files exist (local or remote)
 function Test-RequiredFiles {
+    # If PSScriptRoot is not set, we are running from memory (e.g. iex).
+    # We must skip the local file check and go directly to download.
+    if (-not $PSScriptRoot) {
+        Write-Status "Running in memory, must download required files..." -Type 'Info'
+        return Get-RequiredFilesFromDefaultUrl
+    }
+
     # First check if files exist locally
     $UpdateScriptPath = Join-Path $ScriptRoot $UpdateScriptName
     $TaskXmlPath = Join-Path $ScriptRoot $TaskXmlName
@@ -170,7 +177,12 @@ function Test-RequiredFiles {
     
     # If not found locally, try to download from remote
     Write-Status "Local files not found. Attempting remote download..." -Type 'Info'
-    
+    return Get-RequiredFilesFromDefaultUrl
+}
+
+# This is a new helper function. I've separated the download logic
+# so it can be called from multiple places without code duplication.
+function Get-RequiredFilesFromDefaultUrl {
     # Auto-detect GitHub URL if running from remote
     $RemoteUrl = $null
     try {
@@ -180,6 +192,7 @@ function Test-RequiredFiles {
             # Extract base URL from current execution
             $PathParts = $InvocationUri.AbsolutePath.Split('/')
             if ($PathParts.Length -ge 4) {
+                # Combine the first three parts of the path after the host
                 $RemoteUrl = "https://raw.githubusercontent.com/$($PathParts[1])/$($PathParts[2])/$($PathParts[3])"
             }
         }
@@ -191,7 +204,7 @@ function Test-RequiredFiles {
     # Use detected URL or default
     if (-not $RemoteUrl) {
         $RemoteUrl = "https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/refs/heads/master"
-        Write-Status "Using default repository URL. Update the script with your repository details." -Type 'Warning'
+        Write-Status "Using default repository URL." -Type 'Warning'
     }
     
     return Get-RequiredFiles -BaseUrl $RemoteUrl
