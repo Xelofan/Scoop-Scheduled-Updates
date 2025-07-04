@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Installs and configures a daily scheduled task to update Scoop and its packages.
-    This script can be run locally or directly from the web.
+    This script can be run locally or directly from the web using the recommended one-liner.
 
 .PARAMETER InstallPath
     Path where the Update-Scoop.ps1 script will be installed.
@@ -25,16 +25,8 @@
     .\Install-ScoopAutoUpdate.ps1
 
 .EXAMPLE
-    # Run directly from the web
-    iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/master/Install-ScoopAutoUpdate.ps1'))
-
-.EXAMPLE
-    # Install with a custom schedule time
-    .\Install-ScoopAutoUpdate.ps1 -ScheduleTime "02:30"
-
-.EXAMPLE
-    # Uninstall the components
-    .\Install-ScoopAutoUpdate.ps1 -Uninstall
+    # Run directly from the web (Recommended Method)
+    Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-Command -ScriptBlock ([ScriptBlock]::Create((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/Xelofan/Scoop-Scheduled-Updates/master/Install-ScoopAutoUpdate.ps1')))
 #>
 
 param(
@@ -70,7 +62,7 @@ function Initialize-SourcePath {
         }
     }
 
-    # If running from memory (iex) or files are not found locally, download them
+    # If running from memory or files are not found locally, download them
     Write-Status "Running from web or local files not found. Downloading required files..." -Type 'Info'
     $TempDir = Join-Path $env:TEMP "ScoopAutoUpdate_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
     New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
@@ -79,18 +71,12 @@ function Initialize-SourcePath {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $WebClient = New-Object System.Net.WebClient
 
-        # Download Update-Scoop.ps1
-        $RemoteUrl = "$DefaultRepoUrl/$UpdateScriptName"
-        $LocalPath = Join-Path $TempDir $UpdateScriptName
-        Write-Status "Downloading $UpdateScriptName..." -Type 'Info'
-        $WebClient.DownloadFile($RemoteUrl, $LocalPath)
+        $WebClient.DownloadFile("$DefaultRepoUrl/$UpdateScriptName", (Join-Path $TempDir $UpdateScriptName))
+        Write-Status "Downloaded $UpdateScriptName..." -Type 'Info'
 
-        # Download ScoopAutoUpdate.xml
-        $RemoteUrl = "$DefaultRepoUrl/$TaskXmlName"
-        $LocalPath = Join-Path $TempDir $TaskXmlName
-        Write-Status "Downloading $TaskXmlName..." -Type 'Info'
-        $WebClient.DownloadFile($RemoteUrl, $LocalPath)
-
+        $WebClient.DownloadFile("$DefaultRepoUrl/$TaskXmlName", (Join-Path $TempDir $TaskXmlName))
+        Write-Status "Downloaded $TaskXmlName..." -Type 'Info'
+        
         Write-Status "Files downloaded successfully to temporary directory." -Type 'Success'
         return $TempDir
     }
@@ -110,17 +96,10 @@ function Invoke-Uninstall {
     Write-Status "Starting uninstallation..." -Type 'Info'
     try {
         $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        if ($ExistingTask) {
-            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-            Write-Status "Scheduled task '$TaskName' removed successfully." -Type 'Success'
-        }
+        if ($ExistingTask) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false; Write-Status "Scheduled task '$TaskName' removed." -Type 'Success' }
         else { Write-Status "Scheduled task '$TaskName' not found." -Type 'Info' }
-        if (Test-Path $InstallPath) {
-            Remove-Item -Path $InstallPath -Recurse -Force
-            Write-Status "Installation directory removed: $InstallPath" -Type 'Success'
-        }
+        if (Test-Path $InstallPath) { Remove-Item -Path $InstallPath -Recurse -Force; Write-Status "Installation directory removed: $InstallPath" -Type 'Success' }
         else { Write-Status "Installation directory not found: $InstallPath" -Type 'Info' }
-        Write-Status "Uninstallation completed successfully." -Type 'Success'
     } catch {
         Write-Status "Uninstallation failed: $($_.Exception.Message)" -Type 'Error'
     }
@@ -132,20 +111,15 @@ function Invoke-Installation {
     $UpdateScriptName = "Update-Scoop.ps1"
     $TaskXmlName = "ScoopAutoUpdate.xml"
     $LogPath = "$env:USERPROFILE\.scoop\logs"
-
-    Write-Status "Starting installation..." -Type 'Info'
     $TempXmlPath = $null
+
     try {
-        if (-not (Test-Path $InstallPath)) { New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null; Write-Status "Created installation directory: $InstallPath" -Type 'Success' }
+        if (-not (Test-Path $InstallPath)) { New-Item -Path $InstallPath -ItemType Directory -Force | Out-Null; Write-Status "Created install directory: $InstallPath" -Type 'Success' }
         if (-not (Test-Path $LogPath)) { New-Item -Path $LogPath -ItemType Directory -Force | Out-Null; Write-Status "Created log directory: $LogPath" -Type 'Success' }
         
-        $SourceScript = Join-Path $SourcePath $UpdateScriptName
-        $DestScript = Join-Path $InstallPath $UpdateScriptName
-        Copy-Item -Path $SourceScript -Destination $DestScript -Force
-        Write-Status "Copied $UpdateScriptName to installation directory." -Type 'Success'
+        Copy-Item -Path (Join-Path $SourcePath $UpdateScriptName) -Destination (Join-Path $InstallPath $UpdateScriptName) -Force
         
-        $TaskXmlPath = Join-Path $SourcePath $TaskXmlName
-        $TaskXmlContent = Get-Content $TaskXmlPath -Raw
+        $TaskXmlContent = Get-Content (Join-Path $SourcePath $TaskXmlName) -Raw
         $CurrentUserSID = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         
         $TaskXmlContent = $TaskXmlContent -replace "2025-01-01T03:00:00", "2025-01-01T$($ScheduleTime):00"
@@ -155,20 +129,16 @@ function Invoke-Installation {
         $TempXmlPath = Join-Path $env:TEMP "ScoopAutoUpdate_Task.xml"
         $TaskXmlContent | Out-File -FilePath $TempXmlPath -Encoding UTF8 -Force
         
-        $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        if ($ExistingTask) { Write-Status "Removing existing task..."; Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
+        if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
         
         Register-ScheduledTask -TaskName $TaskName -Xml (Get-Content -Path $TempXmlPath -Raw) | Out-Null
         
-        Remove-Item -Path $TempXmlPath -Force
-        $TempXmlPath = $null
+        Remove-Item -Path $TempXmlPath -Force; $TempXmlPath = $null
 
-        Write-Status "Scheduled task '$TaskName' registered successfully." -Type 'Success'
-        
         $RegisteredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($RegisteredTask) { 
             $NextRun = if ($RegisteredTask.NextRunTime -lt [datetime]::new(2002,1,1)) { $RegisteredTask.Triggers[0].StartBoundary } else { $RegisteredTask.NextRunTime }
-            Write-Status "Task verification successful. Next run: $($NextRun)" -Type 'Success'
+            Write-Status "Task '$TaskName' registered successfully. Next run: $($NextRun)" -Type 'Success'
         }
         else { Write-Status "Task verification failed." -Type 'Warning' }
     } catch {
@@ -185,13 +155,10 @@ $IsTemp = $false
 try {
     Write-Host "`n=== Scoop Auto-Update Installer ===" -ForegroundColor White -BackgroundColor DarkBlue
     
-    if ($Uninstall) {
-        Invoke-Uninstall
-    }
+    if ($Uninstall) { Invoke-Uninstall }
     else {
         $ScriptRoot = Initialize-SourcePath
         if (-not $ScriptRoot) { throw "Could not prepare source files. Aborting." }
-        
         if ($ScriptRoot.Contains($env:TEMP)) { $IsTemp = $true }
 
         $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -203,14 +170,9 @@ try {
         Invoke-Installation -SourcePath $ScriptRoot
         
         Write-Host ""
-        Write-Status "=== Installation Summary ===" -Type 'Info'
-        Write-Status "✓ Scripts installed to: $InstallPath" -Type 'Success'
-        Write-Status "✓ Logs will be stored in: $env:USERPROFILE\.scoop\logs" -Type 'Success'
-        Write-Status "✓ Scheduled task '$TaskName' created to run daily at $ScheduleTime" -Type 'Success'
-        Write-Host ""
         Write-Status "Installation completed successfully!" -Type 'Success'
     }
-} # <<< THIS IS THE BRACE THAT WAS MISSING
+}
 catch {
     Write-Status "An error occurred: $($_.Exception.Message)" -Type 'Error'
     exit 1
